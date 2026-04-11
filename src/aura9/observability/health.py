@@ -11,6 +11,7 @@ from typing import Any
 from loguru import logger
 
 from aura9.core import model as ollama
+from aura9.core.config import get
 from aura9.core.tais import TAIS
 from aura9.memory.falkor_l3 import FalkorMemory
 from aura9.memory.qdrant_l2 import QdrantMemory
@@ -64,10 +65,11 @@ async def run_health_check(
     # Watchdog heartbeat
     hb = await redis.watchdog_heartbeat_age()
     ok = hb is not None
+    hb_ttl = get("security.watchdog.heartbeat_ttl_seconds", 90)
     results.append({
         "name": "Watchdog",
         "ok": ok,
-        "detail": f"heartbeat {90 - hb}s ago" if hb else "heartbeat expired",
+        "detail": f"heartbeat {hb_ttl - hb}s ago" if hb else "heartbeat expired",
     })
 
     for r in results:

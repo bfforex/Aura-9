@@ -101,7 +101,10 @@ def watchdog_status() -> None:
         await redis.connect()
         age = await redis.watchdog_heartbeat_age()
         if age is not None:
-            click.echo(f"  ✓ Watchdog alive — heartbeat {90 - age}s ago")
+            from aura9.core.config import get as cfg_get
+
+            ttl = cfg_get("security.watchdog.heartbeat_ttl_seconds", 90)
+            click.echo(f"  ✓ Watchdog alive — heartbeat {ttl - age}s ago")
         else:
             click.echo("  ✗ Watchdog heartbeat EXPIRED")
         await redis.close()
