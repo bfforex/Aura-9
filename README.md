@@ -1221,8 +1221,8 @@ aura9 memory restore --archive ./archive/memory-2026-01-15-expertise.gz
 - [ ] NVIDIA drivers updated (CUDA 12.x) — verified in WSL2 via `nvidia-smi`
 - [ ] `pynvml` installed and GPU sensor access confirmed in WSL2
 - [ ] Ollama installed — `ollama serve` running
-- [ ] `qwen2.5:9b-instruct-q5_k_m` pulled and verified
-- [ ] `qwen2.5:1.5b` (Watchdog) pulled and verified
+- [ ] `qwen3.5:9b-instruct-q5_k_m` pulled and verified
+- [ ] `qwen3.5:1.5b` (Watchdog) pulled and verified
 - [ ] `nomic-embed-text` (embeddings) pulled and verified
 - [ ] Docker Compose stack running: Redis, Qdrant, FalkorDB — all healthy
 - [ ] FalkorDB graph schema applied and verified

@@ -1,0 +1,41 @@
+# Aura-9 Visual Red Zone Configuration
+# Defines screen areas the VLA Bridge cannot interact with.
+
+red_zones:
+  # Default system-level red zones
+  - name: "System Settings"
+    app: "*"
+    element_label: "Settings"
+    action: "BLOCK"
+    alert: true
+
+  - name: "Package Manager"
+    app: "*"
+    element_label: "apt|brew|winget|pip --system"
+    action: "BLOCK"
+    alert: true
+
+  - name: "Network Configuration"
+    app: "*"
+    element_label: "Network Settings"
+    action: "BLOCK"
+    alert: true
+
+  - name: "Authentication Prompts"
+    app: "*"
+    element_label: "Password|Authenticate"
+    action: "BLOCK"
+    alert: true
+
+  - name: "Destructive Dialogs"
+    app: "*"
+    element_label: "Uninstall|Delete All|Factory Reset|Format"
+    action: "BLOCK"
+    alert: true
+
+  # Custom red zones — add your own below
+  # - name: "Production Deploy"
+  #   app: "Jenkins"
+  #   element_label: "Deploy to Production"
+  #   action: "BLOCK"
+  #   alert: true

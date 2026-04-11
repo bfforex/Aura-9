@@ -1,0 +1,100 @@
+# Aura-9 Configuration — Version 2.1
+# Customize these settings for your local environment.
+
+identity:
+  name: "Aura-9"
+  version: "2.1.0"
+  session_id_prefix: "sess"
+
+model:
+  primary:
+    name: "qwen3.5:9b-instruct-q5_k_m"
+    context_window: 32768
+    default_quantization: "Q5_K_M"
+    throttle_quantization: "Q4_K_M"
+  watchdog:
+    name: "qwen3.5:1.5b"
+    quantization: "Q4_K_M"
+  embedding:
+    name: "nomic-embed-text"
+    dimensions: 768
+
+ollama:
+  base_url: "http://localhost:11434"
+  timeout_seconds: 120
+
+tais:
+  polling_interval_active_seconds: 5
+  polling_interval_idle_seconds: 30
+  thresholds:
+    normal_max_celsius: 75
+    throttle_max_celsius: 80
+    cooldown_max_celsius: 83
+    recovery_celsius: 72
+
+memory:
+  redis:
+    url: "redis://localhost:6379/0"
+    max_capacity_mb: 512
+    session_turn_ttl_seconds: 1800        # 30 min
+    tool_result_ttl_seconds: 300           # 5 min
+    asd_checkpoint_ttl_days: 7
+    mcp_call_counter_ttl_hours: 48
+  qdrant:
+    url: "http://localhost:6333"
+    collections:
+      - "expertise"
+      - "documentation"
+      - "skill_library"
+      - "past_missions"
+      - "failure_analysis"
+    significance_archival_threshold: 0.2
+  falkordb:
+    host: "localhost"
+    port: 6380
+    graph_name: "aura9_graph"
+    snapshot_retention_days: 30
+
+isec:
+  idle_trigger_minutes: 5
+  dedup_similarity_threshold: 0.97
+
+orchestration:
+  escalation_threshold: 0.72
+  max_correction_cycles: 3
+  max_parallel_tasks: 3
+  throttled_parallel_tasks: 2
+  checkpoint_interval_minutes: 15
+  human_gate_timeout_minutes: 120
+
+security:
+  watchdog:
+    heartbeat_interval_seconds: 30
+    heartbeat_ttl_seconds: 90
+    max_restart_attempts: 3
+    hard_kill_threshold: 50   # identical consecutive actions
+  sandbox:
+    memory_limit_mb: 512
+    cpu_timeout_seconds: 120
+  mcp:
+    default_timeout_seconds: 30
+    bulk_timeout_seconds: 120
+
+logging:
+  main_log: "./logs/aura9.log"
+  tais_log: "./logs/tais.log"
+  watchdog_log: "./logs/watchdog.log"
+  audit_log: "./logs/audit.log"
+  isec_log: "./logs/isec.log"
+  rotation: "10 MB"
+  retention: "7 days"
+  compression: "gz"
+
+observability:
+  metrics_host: "0.0.0.0"
+  metrics_port: 9001
+
+paths:
+  backups: "./backups"
+  archive: "./archive"
+  red_zones_config: "./config/red_zones.yaml"

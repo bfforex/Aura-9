@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs (tracked by the agent, not by git)
+logs/
+*.log
+
+# Runtime data
+backups/
+archive/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
