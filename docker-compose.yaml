@@ -1,0 +1,92 @@
+# =============================================================================
+# Aura-9 Docker Compose — Infrastructure Stack
+# =============================================================================
+# Redis (L1 + ASD), Qdrant (L2), FalkorDB (L3 + ASD Shadow)
+# All services bind to localhost only. No external exposure.
+# See Readme_V2.4.md Appendix D for port allocation.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis — L1 Ephemeral Memory + ASD State Daemon
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: aura9-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --bind 0.0.0.0
+      --protected-mode no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — L2 Semantic Memory (Vector Store)
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.12.6
+    container_name: aura9-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"   # REST API
+      - "127.0.0.1:6334:6334"   # gRPC
+    volumes:
+      - qdrant-data:/qdrant/storage
+      - ./backups/qdrant:/qdrant/snapshots
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: "6334"
+      QDRANT__SERVICE__HTTP_PORT: "6333"
+      QDRANT__STORAGE__STORAGE_PATH: "/qdrant/storage"
+      QDRANT__STORAGE__SNAPSHOTS_PATH: "/qdrant/snapshots"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # FalkorDB — L3 Graph Memory + ASD Shadow
+  # ---------------------------------------------------------------------------
+  falkordb:
+    image: falkordb/falkordb:v4.4.1
+    container_name: aura9-falkordb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6380:6379"   # Offset from Redis to avoid conflict
+    volumes:
+      - falkordb-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --loadmodule /usr/lib/redis/modules/falkordb.so
+      --bind 0.0.0.0
+      --protected-mode no
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  redis-data:
+    driver: local
+  qdrant-data:
+    driver: local
+  falkordb-data:
+    driver: local
