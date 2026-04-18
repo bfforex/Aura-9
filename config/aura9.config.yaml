@@ -1,0 +1,307 @@
+# =============================================================================
+# Aura-9 Configuration — Version 2.4
+# =============================================================================
+# All configurable parameters for the Aura-9 Autonomous Reasoning Agent.
+# Values shown are defaults. Override as needed for your environment.
+# See Readme_V2.4.md Appendix G for schema documentation.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model Configuration
+# ---------------------------------------------------------------------------
+model:
+  # Primary 9B model — must support tool calling
+  primary: "qwen3.5:9b-instruct-q5_k_m"
+  # TAIS THROTTLE fallback quantization
+  primary_fallback: "qwen3.5:9b-instruct-q4_k_m"
+  # Watchdog oversight model
+  watchdog: "qwen3.5:1.5b"
+  # Embedding model for L2 semantic search and ISEC
+  embedding: "nomic-embed-text"
+  # Vision model for VLA Bridge (on-demand load)
+  vision: "moondream2"
+  # Inference temperature (lower = more deterministic)
+  temperature: 0.3
+  # Context window tokens (Qwen 3.5 9B supports 32,768)
+  context_window: 32768
+
+# ---------------------------------------------------------------------------
+# TAIS — Thermal-Aware Inference Scheduling
+# ---------------------------------------------------------------------------
+tais:
+  # GPU temperature thresholds (Celsius) — adjust for your specific GPU
+  thresholds:
+    normal_max: 74          # Below this: NORMAL operation
+    throttle_trigger: 75    # At or above: initiate THROTTLE (switch to Q4_K_M)
+    cooldown_trigger: 80    # At or above: COOLDOWN (drain inference, wait)
+    emergency_trigger: 83   # At or above: EMERGENCY (immediate halt)
+    cooldown_resume: 72     # Resume from COOLDOWN when temp drops below this
+    emergency_resume: 72    # Resume from EMERGENCY (also requires user confirmation)
+  # Polling interval in seconds
+  polling_interval_seconds: 5
+  # Sensor failure behavior
+  sensor_fail_fallback: "THROTTLE"  # Assume THROTTLE on sensor read failure
+  sensor_retry_interval_seconds: 30
+
+# ---------------------------------------------------------------------------
+# Memory — Triple-Thread APM
+# ---------------------------------------------------------------------------
+memory:
+  l1_redis:
+    # Session-bound key TTL (extended to 7 days on SUSPENDED)
+    default_ttl_hours: 24
+    suspended_ttl_days: 7
+    # Tool result verbatim size cap (tokens)
+    verbatim_cap_tokens: 2048
+    # L1 to L2 promotion confidence threshold
+    promotion_confidence_threshold: 0.85
+
+  l2_qdrant:
+    # Collections to initialize
+    collections:
+      - expertise
+      - documentation
+      - skill_library
+      - past_missions
+      - failure_analysis
+    # Hybrid search defaults
+    default_top_k: 5
+    prefetch_limit: 20
+    rrf_constant: 60
+    # Embedding dimensions (nomic-embed-text)
+    embedding_dim: 768
+
+  l3_falkordb:
+    # Retry queue settings
+    retry_max_attempts: 3
+    retry_interval_seconds: 60
+    retry_queue_ttl_hours: 1
+    # Shadow write mode
+    shadow_write_mode: "async"  # async queue, not blocking
+
+  significance:
+    # S = (R * F) + pin_bonus
+    # R normalization window
+    r_normalization_window_days: 90
+    # Frequency decay half-life
+    f_half_life_days: 30
+    # Archival threshold
+    archive_threshold: 0.2
+    # Grace period for newly promoted nodes
+    grace_period_days: 30
+    # Pin bonus value
+    pin_bonus: 1.0
+
+  isec:
+    # ISEC activation condition: ASD status == IDLE
+    # Pass configuration
+    similarity_threshold: 0.92   # Pass 2: dedup threshold
+    min_successful_uses: 10      # Before EXPERIMENTAL -> VALIDATED
+    # ISEC checkpoint key
+    progress_key: "isec:progress"
+
+# ---------------------------------------------------------------------------
+# Context Budget Manager
+# ---------------------------------------------------------------------------
+context:
+  # Total usable tokens (32,768 - 4,096 safety buffer)
+  usable_tokens: 28672
+  safety_buffer_tokens: 4096
+  # Budget allocations (must sum to usable_tokens)
+  allocations:
+    system_prompt: 2048
+    asd_state_injection: 1024
+    l2_retrieval: 8192
+    l3_graph_context: 2048
+    l1_episodic: 4096
+    scratchpad: 4096
+    tool_results: 4096
+    output_budget: 3072
+  # Compression pass threshold
+  compression_trigger_percent: 100  # Trigger when budget exceeded
+
+# ---------------------------------------------------------------------------
+# Inference Queue
+# ---------------------------------------------------------------------------
+inference:
+  # Priority levels: 0=CRITICAL, 1=HIGH, 2=NORMAL, 3=LOW
+  max_concurrent_orchestration_threads: 3
+  throttle_concurrent_threads: 2
+  # Ollama connection
+  ollama_host: "http://localhost:11434"
+  ollama_watchdog_host: "http://localhost:11435"  # CPU tier only
+  # Request timeout
+  inference_timeout_seconds: 120
+  # Retry on connection failure
+  max_retries: 3
+  retry_backoff_seconds: [5, 10, 15]
+
+# ---------------------------------------------------------------------------
+# Redis
+# ---------------------------------------------------------------------------
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: ""  # Set via environment variable AURA9_REDIS_PASSWORD preferred
+  db: 0
+
+# ---------------------------------------------------------------------------
+# Qdrant
+# ---------------------------------------------------------------------------
+qdrant:
+  host: "127.0.0.1"
+  rest_port: 6333
+  grpc_port: 6334
+  # Snapshot settings
+  snapshot_dir: "./backups/qdrant"
+  snapshot_retention_days: 30
+
+# ---------------------------------------------------------------------------
+# FalkorDB
+# ---------------------------------------------------------------------------
+falkordb:
+  host: "127.0.0.1"
+  port: 6380
+  graph_name: "aura9"
+  # Snapshot settings
+  snapshot_dir: "./backups"
+  snapshot_retention_days: 30
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+security:
+  # MCP credentials file path
+  mcp_credentials_path: "./secrets/mcp-credentials.yaml"
+  # Red Zone configuration
+  red_zones:
+    - name: "System Settings"
+      action: "BLOCK"
+    - name: "Package Manager"
+      action: "BLOCK"
+    - name: "Network Configuration"
+      action: "BLOCK"
+    - name: "Authentication prompts"
+      action: "BLOCK"
+  # Financial transaction detection
+  financial_gate_enabled: true
+  # PII scrubbing
+  pii_scrub_on_l2_promotion: true
+  pii_scrub_on_audit_write: true
+
+# ---------------------------------------------------------------------------
+# Watchdog
+# ---------------------------------------------------------------------------
+watchdog:
+  # Heartbeat configuration
+  heartbeat_interval_seconds: 30
+  heartbeat_ttl_seconds: 90
+  heartbeat_key: "watchdog:heartbeat"
+  # Buffer during restart
+  buffer_key: "watchdog:buffer"
+  buffer_ttl_seconds: 300
+  # Restart limits
+  max_restart_attempts: 3
+  restart_interval_seconds: 30
+  # Hard kill threshold
+  hard_kill_consecutive_identical: 50
+  # Hardware tier detection
+  hardware_tier: "auto"  # "auto", "6gb", "8gb+"
+
+# ---------------------------------------------------------------------------
+# Continuity Engine
+# ---------------------------------------------------------------------------
+continuity:
+  checkpoint_interval_minutes: 15
+  health_check_interval_minutes: 5
+  falkordb_snapshot_interval_hours: 24
+  qdrant_snapshot_interval_hours: 24
+  # Session cleanup
+  stale_session_max_hours: 24
+  # Checkpoint TTL
+  checkpoint_ttl_days: 30
+
+# ---------------------------------------------------------------------------
+# Observability
+# ---------------------------------------------------------------------------
+observability:
+  # Prometheus metrics endpoint
+  metrics_port: 9001
+  metrics_host: "127.0.0.1"
+  # Logging
+  log_dir: "./logs"
+  log_rotation_mb: 10
+  log_retention_days: 7
+  log_compression: "gz"
+  # Audit trail
+  audit_path: "/mnt/c/aura9-audit/audit.log"
+  audit_format: "jsonl"
+  audit_compress_monthly: true
+  audit_archive_months: 12
+
+# ---------------------------------------------------------------------------
+# Session
+# ---------------------------------------------------------------------------
+session:
+  # Maximum session duration before forced rotation
+  max_ttl_hours: 24
+  # Maximum human gates per mission before escalation
+  max_gates_per_mission: 5
+  # Gate coalescing window
+  gate_coalesce_window_seconds: 60
+  # Gate timeout ladder
+  gate_timeout_renotify_minutes: 30
+  gate_timeout_suspend_minutes: 120
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+  workspace: "."
+  logs: "./logs"
+  backups: "./backups"
+  archive: "./archive"
+  skills: "./skills"
+  migrations: "./migrations"
+  secrets: "./secrets"
+
+# ---------------------------------------------------------------------------
+# Skill Forge
+# ---------------------------------------------------------------------------
+skill_forge:
+  # Maximum synthesis time before circuit breaker
+  max_synthesis_minutes: 30
+  # Minimum test vectors for promotion
+  min_test_vectors: 3
+  # Skill similarity threshold for tool array inclusion
+  relevance_threshold: 0.75
+  # Test vector export directory
+  test_export_dir: "./skills/tests"
+
+# ---------------------------------------------------------------------------
+# VLA Bridge
+# ---------------------------------------------------------------------------
+vla:
+  # Keep-alive thresholds (VRAM headroom in GB)
+  keep_alive_threshold_gb: 2.2
+  unload_threshold_gb: 2.0
+  # Minimum cycles above threshold before keep-alive
+  keep_alive_min_cycles: 3
+
+# ---------------------------------------------------------------------------
+# MCP Gateway
+# ---------------------------------------------------------------------------
+mcp:
+  # Default daily call limit per server
+  default_daily_limit: 100
+  # Tier definitions
+  tiers:
+    tier1:
+      approval: "auto"
+      description: "Local, safe, no side effects"
+    tier2:
+      approval: "auto_with_log"
+      description: "External read, rate-limited"
+    tier3:
+      approval: "human_gate"
+      description: "External write, state-changing"
