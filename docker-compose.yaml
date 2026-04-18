@@ -24,8 +24,7 @@ services:
       --appendfsync everysec
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
-      --bind 0.0.0.0
-      --protected-mode no
+      --protected-mode yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -74,8 +73,7 @@ services:
       --appendonly yes
       --appendfsync everysec
       --loadmodule /usr/lib/redis/modules/falkordb.so
-      --bind 0.0.0.0
-      --protected-mode no
+      --protected-mode yes
     healthcheck:
       test: ["CMD", "redis-cli", "-p", "6379", "ping"]
       interval: 10s
