@@ -21,7 +21,7 @@ _TOOL_KEYWORDS = {
 
 # Trivial patterns (greetings, simple status)
 _TRIVIAL_PATTERNS = [
-    re.compile(r"^(hi|hello|hey|good\s+(morning|afternoon|evening)|howdy)[!.,?]*$", re.I),
+    re.compile(r"^(hi|hello|hey|good\s+(morning|afternoon|evening)|howdy)(\s+\w+)?[!.,?]*$", re.I),
     re.compile(r"^what\s+(time|date)\s+is\s+it[?!.]*$", re.I),
     re.compile(r"^(yes|no|ok|okay|sure|nope|yep|yeah)[!.,?]*$", re.I),
     re.compile(r"^(status|health|ping)[?!.]*$", re.I),
