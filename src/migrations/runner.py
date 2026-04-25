@@ -104,9 +104,13 @@ class MigrationRunner:
     def _mark_applied(graph, version: str) -> None:
         applied_at = datetime.now(UTC).isoformat()
         try:
+            # Use JSON-encoded strings to safely escape special characters
+            import json  # noqa: PLC0415
+            safe_version = json.dumps(version)
+            safe_applied_at = json.dumps(applied_at)
             graph.query(
-                f"MERGE (m:Migration {{version: {repr(version)}}}) "
-                f"ON CREATE SET m.applied_at = {repr(applied_at)}"
+                f"MERGE (m:Migration {{version: {safe_version}}}) "
+                f"ON CREATE SET m.applied_at = {safe_applied_at}"
             )
         except Exception as exc:
             logger.warning(f"MigrationRunner: could not record migration {version}: {exc}")

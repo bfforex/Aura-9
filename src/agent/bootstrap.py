@@ -193,12 +193,12 @@ async def run_agent(config, args) -> None:
     # 16. Execute a single task or enter REPL
     # ------------------------------------------------------------------
     shutdown_event = asyncio.Event()
+    loop = asyncio.get_event_loop()
 
     def _signal_handler():
         logger.info("Shutdown signal received")
-        shutdown_event.set()
+        loop.call_soon_threadsafe(shutdown_event.set)
 
-    loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
             loop.add_signal_handler(sig, _signal_handler)

@@ -174,7 +174,7 @@ class AuraStateDaemon:
             return
         ttl_seconds = days * 86400
         try:
-            await self._l1._r.expire("asd:state", ttl_seconds)
+            await self._l1.set_expiry("asd:state", ttl_seconds)
             logger.debug(f"ASD: asd:state TTL set to {days} days")
         except Exception as exc:
             logger.warning(f"ASD: expire_terminal_state failed: {exc}")

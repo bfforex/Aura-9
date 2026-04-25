@@ -193,7 +193,7 @@ class ReasoningEngine:
                         "estimated_complexity": result.complexity,
                         "depends_on": [],
                     }
-                    new_result = await self._dag_scheduler._executor(sub_task)  # type: ignore[misc]
+                    new_result = await self._dag_scheduler.execute_subtask(sub_task)
                     new_result = SubTaskResult(
                         id=result.id,
                         success=new_result.success,

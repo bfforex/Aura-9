@@ -35,6 +35,15 @@ class DAGScheduler:
         """Return True if an executor has been injected."""
         return self._executor is not None
 
+    async def execute_subtask(self, sub_task: dict) -> "SubTaskResult":
+        """Public interface to run a single sub-task via the injected executor.
+
+        Raises ``RuntimeError`` if no executor is configured.
+        """
+        if self._executor is None:
+            raise RuntimeError("DAGScheduler: no executor configured")
+        return await self._executor(sub_task)
+
     async def execute(self, sub_tasks: list[dict[str, Any]]) -> list[SubTaskResult]:
         """Execute sub-tasks respecting dependency order.
 
