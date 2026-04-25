@@ -178,7 +178,7 @@ class ReasoningEngine:
                 continue
 
             # Re-run via executor if one is available
-            if self._dag_scheduler and self._dag_scheduler._executor is not None:
+            if self._dag_scheduler and self._dag_scheduler.has_executor():
                 try:
                     # Inject correction context into sub-task
                     sub_task = {
@@ -193,7 +193,7 @@ class ReasoningEngine:
                         "estimated_complexity": result.complexity,
                         "depends_on": [],
                     }
-                    new_result = await self._dag_scheduler._executor(sub_task)
+                    new_result = await self._dag_scheduler._executor(sub_task)  # type: ignore[misc]
                     new_result = SubTaskResult(
                         id=result.id,
                         success=new_result.success,

@@ -158,20 +158,33 @@ class SkillForge:
 
         Raises ValueError if any vector fails.
         """
+        import json  # noqa: PLC0415
+        import re  # noqa: PLC0415
+
         from src.tools.python_exec import python_exec  # noqa: PLC0415
+
+        # Only allow valid Python identifiers as expected_keys
+        _key_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
         for i, vector in enumerate(vectors):
             input_kwargs = vector.get("input", {})
             expected_keys = vector.get("expected_keys", ["success"])
 
-            # Build test harness code
-            import json  # noqa: PLC0415
+            # Validate that all expected keys are safe Python identifiers
+            for key in expected_keys:
+                if not isinstance(key, str) or not _key_re.match(key):
+                    raise ValueError(
+                        f"SkillForge: test vector {i} contains invalid expected_key: {key!r}"
+                    )
+
+            # Build test harness code — keys are now guaranteed safe identifiers
             harness = (
                 f"{source_code}\n\n"
                 f"_result = execute(**{json.dumps(input_kwargs)})\n"
                 f"assert isinstance(_result, dict), 'Result must be a dict'\n"
             )
             for key in expected_keys:
+                # json.dumps produces a safe quoted string literal
                 harness += f"assert {json.dumps(key)} in _result, 'Missing key: {key}'\n"
             harness += "print('VECTOR_OK')\n"
 

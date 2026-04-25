@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -167,8 +168,6 @@ class TestDAGSchedulerExecution:
     @pytest.mark.asyncio
     async def test_max_concurrent_respected(self):
         """max_concurrent limits parallel execution."""
-        import asyncio  # noqa: PLC0415
-
         active: list[int] = [0]
         peak: list[int] = [0]
 

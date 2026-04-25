@@ -161,11 +161,9 @@ class AuraStateDaemon:
             if self._l1:
                 ttl_days = 30
                 if self._config is not None:
-                    ttl_days = getattr(
-                        getattr(self._config, "continuity", None),
-                        "checkpoint_ttl_days",
-                        30,
-                    )
+                    continuity = getattr(self._config, "continuity", None)
+                    if continuity is not None:
+                        ttl_days = getattr(continuity, "checkpoint_ttl_days", 30)
                 await self.expire_terminal_state(ttl_days)
         except Exception as exc:
             logger.warning(f"ASD: terminal persist to L3 failed: {exc}")

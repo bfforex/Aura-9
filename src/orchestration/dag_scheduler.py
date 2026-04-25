@@ -31,6 +31,10 @@ class DAGScheduler:
         """Inject an executor callable with signature async def execute_subtask(sub_task) -> SubTaskResult."""
         self._executor = executor
 
+    def has_executor(self) -> bool:
+        """Return True if an executor has been injected."""
+        return self._executor is not None
+
     async def execute(self, sub_tasks: list[dict[str, Any]]) -> list[SubTaskResult]:
         """Execute sub-tasks respecting dependency order.
 
