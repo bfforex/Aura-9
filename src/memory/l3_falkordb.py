@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -11,6 +13,9 @@ from loguru import logger
 RETRY_QUEUE_TTL = 3600   # 1 hour
 MAX_ATTEMPTS = 3
 RETRY_INTERVAL = 60      # seconds
+
+# Allowed Cypher label pattern: starts with letter/underscore, then alphanumeric/underscore
+_LABEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 try:
     import falkordb as _falkordb_mod  # noqa: F401
@@ -45,8 +50,8 @@ class FalkorDBMemory:
 
         try:
             import falkordb  # noqa: PLC0415
-            db = falkordb.FalkorDB(host=self._host, port=self._port)
-            self._graph = db.select_graph(self._graph_name)
+            db = await asyncio.to_thread(falkordb.FalkorDB, host=self._host, port=self._port)
+            self._graph = await asyncio.to_thread(db.select_graph, self._graph_name)
             self._connected = True
             logger.info(f"L3: connected to FalkorDB at {self._host}:{self._port}")
         except Exception as exc:
@@ -65,7 +70,7 @@ class FalkorDBMemory:
 
         if self._connected and self._graph is not None:
             try:
-                self._graph.query(cypher)
+                await asyncio.to_thread(self._graph.query, cypher)
                 return entity_id
             except Exception as exc:
                 logger.warning(f"L3: create_entity failed: {exc} — queuing retry")
@@ -97,7 +102,7 @@ class FalkorDBMemory:
 
         if self._connected and self._graph is not None:
             try:
-                self._graph.query(cypher)
+                await asyncio.to_thread(self._graph.query, cypher)
                 return
             except Exception as exc:
                 logger.warning(f"L3: create_relationship failed: {exc} — queuing retry")
@@ -114,7 +119,7 @@ class FalkorDBMemory:
             return None
         try:
             cypher = f"MATCH (n {{entity_id: {json.dumps(entity_id)}}}) RETURN n LIMIT 1"
-            result = self._graph.query(cypher)
+            result = await asyncio.to_thread(self._graph.query, cypher)
             if result.result_set:
                 return dict(result.result_set[0][0].properties)
         except Exception as exc:
@@ -131,7 +136,7 @@ class FalkorDBMemory:
 
         if self._connected and self._graph is not None:
             try:
-                self._graph.query(cypher)
+                await asyncio.to_thread(self._graph.query, cypher)
                 return
             except Exception as exc:
                 logger.warning(f"L3: update_entity failed: {exc} — queuing retry")
@@ -165,7 +170,7 @@ class FalkorDBMemory:
 
             if self._connected and self._graph is not None:
                 try:
-                    self._graph.query(item["cypher"])
+                    await asyncio.to_thread(self._graph.query, item["cypher"])
                     processed += 1
                     continue
                 except Exception as exc:
@@ -198,5 +203,16 @@ class FalkorDBMemory:
 
     @staticmethod
     def _build_create_node_cypher(entity_type: str, props: dict) -> str:
+        """Build a CREATE node Cypher statement.
+
+        Raises ``ValueError`` if ``entity_type`` contains characters that could
+        enable Cypher injection.
+        """
+        if not _LABEL_RE.match(entity_type):
+            raise ValueError(
+                f"Invalid entity_type label '{entity_type}': "
+                "must match [A-Za-z_][A-Za-z0-9_]*"
+            )
         prop_str = ", ".join(f"{k}: {json.dumps(v)}" for k, v in props.items())
         return f"CREATE (n:{entity_type} {{{prop_str}}})"
+

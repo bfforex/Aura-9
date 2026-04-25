@@ -82,9 +82,10 @@ class PrecisionPlannerValidator:
 class AuraStateDaemon:
     """Manages ASD state with coalescing, checkpointing, and terminal-state persistence."""
 
-    def __init__(self, l1=None, l3=None) -> None:
+    def __init__(self, l1=None, l3=None, config=None) -> None:
         self._l1 = l1
         self._l3 = l3
+        self._config = config
         self._validator = PrecisionPlannerValidator()
         self._pending_update: dict | None = None
         self._coalesce_task: asyncio.Task | None = None
@@ -156,8 +157,29 @@ class AuraStateDaemon:
                     },
                     asd_data.get("session_id", ""),
                 )
+            # Expire the asd:state key after checkpoint_ttl_days
+            if self._l1:
+                ttl_days = 30
+                if self._config is not None:
+                    ttl_days = getattr(
+                        getattr(self._config, "continuity", None),
+                        "checkpoint_ttl_days",
+                        30,
+                    )
+                await self.expire_terminal_state(ttl_days)
         except Exception as exc:
             logger.warning(f"ASD: terminal persist to L3 failed: {exc}")
+
+    async def expire_terminal_state(self, days: int) -> None:
+        """Set TTL on the asd:state key after a terminal state is reached."""
+        if not self._l1:
+            return
+        ttl_seconds = days * 86400
+        try:
+            await self._l1._r.expire("asd:state", ttl_seconds)
+            logger.debug(f"ASD: asd:state TTL set to {days} days")
+        except Exception as exc:
+            logger.warning(f"ASD: expire_terminal_state failed: {exc}")
 
     async def get_state(self) -> dict | None:
         if not self._l1:
@@ -175,12 +197,15 @@ class AuraStateDaemon:
         ckpt_id = str(uuid.uuid4())[:8]
         ts = datetime.now(UTC).isoformat()
 
-        if self._l1 and self._pending_update:
+        # Snapshot _pending_update at the start to avoid race with _flush
+        state = self._pending_update
+
+        if self._l1 and state:
             ckpt_data = {
                 "ckpt_id": ckpt_id,
                 "task_id": task_id,
                 "created_at": ts,
-                "state": self._pending_update,
+                "state": state,
             }
             await self._l1.save_checkpoint(task_id, ckpt_id, json.dumps(ckpt_data))
 

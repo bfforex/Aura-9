@@ -16,10 +16,20 @@ DEFAULT_MAX_CONCURRENT = 3
 class DAGScheduler:
     """Topological sort + concurrent execution of sub-tasks."""
 
-    def __init__(self, max_concurrent: int = DEFAULT_MAX_CONCURRENT, tais_daemon=None) -> None:
+    def __init__(
+        self,
+        max_concurrent: int = DEFAULT_MAX_CONCURRENT,
+        tais_daemon=None,
+        executor=None,
+    ) -> None:
         self._max_concurrent = max_concurrent
         self._tais = tais_daemon
+        self._executor = executor
         self._semaphore = asyncio.Semaphore(max_concurrent)
+
+    def set_executor(self, executor) -> None:
+        """Inject an executor callable with signature async def execute_subtask(sub_task) -> SubTaskResult."""
+        self._executor = executor
 
     async def execute(self, sub_tasks: list[dict[str, Any]]) -> list[SubTaskResult]:
         """Execute sub-tasks respecting dependency order.
@@ -67,19 +77,37 @@ class DAGScheduler:
 
     async def _execute_one(self, sub_task: dict[str, Any]) -> SubTaskResult:
         async with self._semaphore:
+            # Check TAIS status before executing
+            if self._tais:
+                from src.core.tais import TAISHaltException, TAISStatus  # noqa: PLC0415
+                if self._tais.get_status() == TAISStatus.EMERGENCY:
+                    raise TAISHaltException("TAIS EMERGENCY")
+
+            logger.debug(
+                f"DAG: executing subtask {sub_task['id']}: "
+                f"{sub_task.get('description', '')[:60]}"
+            )
+
+            # Use injected executor when available
+            if self._executor is not None:
+                from src.core.tais import TAISHaltException  # noqa: PLC0415
+                try:
+                    return await self._executor(sub_task)
+                except TAISHaltException:
+                    raise  # propagate upward — do not catch
+                except Exception as exc:
+                    logger.warning(f"DAG: subtask {sub_task['id']} executor failed: {exc}")
+                    return SubTaskResult(
+                        id=sub_task["id"],
+                        success=False,
+                        output=None,
+                        confidence=0.0,
+                        complexity=float(sub_task.get("estimated_complexity", 0.5)),
+                        error=str(exc),
+                    )
+
+            # Fallback stub (unit-test / no-executor mode)
             try:
-                # Check TAIS status before executing
-                if self._tais:
-                    from src.core.tais import TAISHaltException, TAISStatus  # noqa: PLC0415
-                    if self._tais.get_status() == TAISStatus.EMERGENCY:
-                        raise TAISHaltException("TAIS EMERGENCY")
-
-                logger.debug(
-                    f"DAG: executing subtask {sub_task['id']}: "
-                    f"{sub_task.get('description', '')[:60]}"
-                )
-
-                # Placeholder execution — in production this calls the reasoning engine
                 confidence = compute_confidence(
                     tool_calls_ok=1,
                     tool_calls_total=max(1, len(sub_task.get("tools_required", []))),

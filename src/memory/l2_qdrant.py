@@ -64,47 +64,110 @@ class QdrantMemory:
             if not embedding:
                 return []
 
-            from qdrant_client.models import (  # noqa: PLC0415
-                Prefetch,
-                Query,
-                SparseVector,
-            )
-
-            # Dense prefetch
-            dense_prefetch = Prefetch(
-                query=embedding,
-                using="text_dense",
-                limit=20,
-            )
-
-            # Sparse query (simple keyword-based sparse vector)
-            sparse_indices, sparse_values = self._make_sparse_vector(query)
-            sparse_prefetch = Prefetch(
-                query=SparseVector(indices=sparse_indices, values=sparse_values),
-                using="text_sparse",
-                limit=20,
-            )
-
-            results = await self._qd.query_points(
-                collection_name=collection,
-                prefetch=[dense_prefetch, sparse_prefetch],
-                query=Query(fusion="rrf"),
-                limit=top_k,
-            )
-
-            return [
-                SearchResult(
-                    id=str(r.id),
-                    score=float(r.score),
-                    text=r.payload.get("text", "") if r.payload else "",
-                    payload=r.payload or {},
-                    collection=collection,
+            # Try the qdrant-client ≥ 1.9 query_points API first; fall back to
+            # two sequential searches with manual RRF merge for older clients.
+            try:
+                from qdrant_client.models import (  # noqa: PLC0415
+                    Prefetch,
+                    Query,
+                    SparseVector,
                 )
-                for r in results.points
-            ]
+
+                # Dense prefetch
+                dense_prefetch = Prefetch(
+                    query=embedding,
+                    using="text_dense",
+                    limit=20,
+                )
+
+                # Sparse query (simple keyword-based sparse vector)
+                sparse_indices, sparse_values = self._make_sparse_vector(query)
+                sparse_prefetch = Prefetch(
+                    query=SparseVector(indices=sparse_indices, values=sparse_values),
+                    using="text_sparse",
+                    limit=20,
+                )
+
+                results = await self._qd.query_points(
+                    collection_name=collection,
+                    prefetch=[dense_prefetch, sparse_prefetch],
+                    query=Query(fusion="rrf"),
+                    limit=top_k,
+                )
+
+                return [
+                    SearchResult(
+                        id=str(r.id),
+                        score=float(r.score),
+                        text=r.payload.get("text", "") if r.payload else "",
+                        payload=r.payload or {},
+                        collection=collection,
+                    )
+                    for r in results.points
+                ]
+
+            except (ImportError, AttributeError):
+                # Fallback: two sequential searches + manual RRF merge
+                logger.debug("L2: falling back to sequential search + manual RRF merge")
+                return await self._hybrid_search_fallback(collection, embedding, query, top_k)
+
         except Exception as exc:
             logger.warning(f"L2: hybrid_search failed: {exc}")
             return []
+
+    async def _hybrid_search_fallback(
+        self, collection: str, embedding: list[float], query: str, top_k: int
+    ) -> list[SearchResult]:
+        """Fallback hybrid search using sequential dense + sparse searches with RRF merge."""
+        from qdrant_client.models import SparseVector  # noqa: PLC0415
+
+        rrf_k = 60
+        scores: dict[str, float] = {}
+        payloads: dict[str, dict] = {}
+
+        # Dense search
+        try:
+            dense_results = await self._qd.search(
+                collection_name=collection,
+                query_vector=("text_dense", embedding),
+                limit=20,
+            )
+            for rank, r in enumerate(dense_results):
+                rid = str(r.id)
+                scores[rid] = scores.get(rid, 0.0) + 1.0 / (rrf_k + rank + 1)
+                payloads[rid] = r.payload or {}
+        except Exception as exc:
+            logger.debug(f"L2: dense search failed in fallback: {exc}")
+
+        # Sparse search
+        try:
+            sparse_indices, sparse_values = self._make_sparse_vector(query)
+            sparse_results = await self._qd.search(
+                collection_name=collection,
+                query_vector=("text_sparse", SparseVector(
+                    indices=sparse_indices, values=sparse_values
+                )),
+                limit=20,
+            )
+            for rank, r in enumerate(sparse_results):
+                rid = str(r.id)
+                scores[rid] = scores.get(rid, 0.0) + 1.0 / (rrf_k + rank + 1)
+                payloads.setdefault(rid, r.payload or {})
+        except Exception as exc:
+            logger.debug(f"L2: sparse search failed in fallback: {exc}")
+
+        # Sort by RRF score and return top_k
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        return [
+            SearchResult(
+                id=rid,
+                score=score,
+                text=payloads.get(rid, {}).get("text", ""),
+                payload=payloads.get(rid, {}),
+                collection=collection,
+            )
+            for rid, score in ranked
+        ]
 
     async def upsert(self, collection: str, text: str, payload: dict[str, Any]) -> str:
         """Embed text and upsert into collection. Returns the point ID."""

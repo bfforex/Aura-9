@@ -109,12 +109,78 @@ class SkillForge:
         return result.get("message", {}).get("content", "")
 
     async def _generate_test_vectors(self, description: str, source_code: str) -> list[dict]:
-        """Generate minimum test vectors for skill validation."""
+        """Generate and validate test vectors for the generated skill.
+
+        When ollama is available: prompts the LLM to produce MIN_TEST_VECTORS JSON test
+        vectors, then validates each one against source_code in a subprocess sandbox.
+        Falls back to hardcoded stub when ollama is unavailable.
+        """
+        if self._ollama:
+            try:
+                prompt = (
+                    f"Generate exactly {MIN_TEST_VECTORS} JSON test vectors for the following "
+                    f"Python skill.\n\nSkill description: {description}\n\n"
+                    f"Skill source code:\n{source_code}\n\n"
+                    "Output a JSON array only (no prose). Each element must be an object with "
+                    "keys:\n"
+                    '  "input": {{...}}  — keyword arguments to pass to execute()\n'
+                    '  "expected_keys": ["success", ...]  — keys that must be present in the result\n'
+                    f"Output exactly {MIN_TEST_VECTORS} objects."
+                )
+                messages = [
+                    {"role": "user", "content": prompt},
+                ]
+                result = await self._ollama.chat(messages, stream=False)
+                raw_content = result.get("message", {}).get("content", "")
+
+                # Extract JSON array from response
+                import json  # noqa: PLC0415
+                import re  # noqa: PLC0415
+                json_match = re.search(r"\[.*\]", raw_content, re.DOTALL)
+                if json_match:
+                    vectors = json.loads(json_match.group())
+                    if isinstance(vectors, list) and len(vectors) >= MIN_TEST_VECTORS:
+                        # Validate each vector against the skill source in sandbox
+                        await self._validate_vectors(source_code, vectors)
+                        return vectors
+            except Exception as exc:
+                logger.warning(f"SkillForge: LLM test vector generation failed: {exc} — using stub")
+
+        # Stub fallback (no ollama or LLM failure)
         return [
             {"input": {}, "expected_keys": ["success", "result"]},
             {"input": {"test": True}, "expected_keys": ["success"]},
             {"input": {"dry_run": True}, "expected_keys": ["success"]},
         ]
+
+    async def _validate_vectors(self, source_code: str, vectors: list[dict]) -> None:
+        """Run each test vector against the skill source in a subprocess sandbox.
+
+        Raises ValueError if any vector fails.
+        """
+        from src.tools.python_exec import python_exec  # noqa: PLC0415
+
+        for i, vector in enumerate(vectors):
+            input_kwargs = vector.get("input", {})
+            expected_keys = vector.get("expected_keys", ["success"])
+
+            # Build test harness code
+            import json  # noqa: PLC0415
+            harness = (
+                f"{source_code}\n\n"
+                f"_result = execute(**{json.dumps(input_kwargs)})\n"
+                f"assert isinstance(_result, dict), 'Result must be a dict'\n"
+            )
+            for key in expected_keys:
+                harness += f"assert {json.dumps(key)} in _result, 'Missing key: {key}'\n"
+            harness += "print('VECTOR_OK')\n"
+
+            exec_result = await python_exec(harness, timeout_seconds=10)
+            if not exec_result.success:
+                raise ValueError(
+                    f"SkillForge: test vector {i} failed: "
+                    f"{exec_result.error or exec_result.output}"
+                )
 
     @staticmethod
     def _extract_tags(description: str) -> list[str]:
