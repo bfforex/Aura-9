@@ -51,6 +51,7 @@ async def run_agent(config, args) -> None:
     # 3. Ollama client
     # ------------------------------------------------------------------
     from src.core.ollama_client import AsyncOllamaClient  # noqa: PLC0415
+
     ollama_client = AsyncOllamaClient(
         host=config.inference.ollama_host,
         model=config.model.primary,
@@ -218,12 +219,12 @@ async def run_agent(config, args) -> None:
         await watchdog.stop()
         try:
             await ollama_client.aclose()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"Failed to close Ollama client cleanly: {exc}")
         try:
             await redis_client.aclose()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"Failed to close Redis client cleanly: {exc}")
         logger.info("Aura-9 shutdown complete")
 
 
@@ -235,6 +236,7 @@ def _make_subtask_executor(reasoning_engine, ollama_client):
     async def execute_subtask(sub_task: dict) -> SubTaskResult:
         if ollama_client is None:
             from src.core.confidence import compute_confidence as _cc  # noqa: PLC0415
+
             conf = _cc(
                 tool_calls_ok=1,
                 tool_calls_total=max(1, len(sub_task.get("tools_required", []))),

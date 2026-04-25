@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from loguru import logger
+
 
 async def get_system_status(
     tais_daemon=None, asd_daemon=None, l1=None
@@ -45,6 +47,6 @@ async def get_memory_stats(l1=None) -> dict:
         try:
             isec = await l1.get_isec_progress()
             stats["isec_progress"] = isec
-        except Exception:  # noqa: S110
-            pass
+        except Exception as exc:
+            logger.debug(f"Diagnostics: failed to fetch ISEC progress: {exc}")
     return stats

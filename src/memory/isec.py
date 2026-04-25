@@ -58,14 +58,15 @@ class ISECDaemon:
                 state = json.loads(raw)
                 asd_update = state.get("asd_update", state)
                 return asd_update.get("status", "") == "IDLE"
-        except Exception:  # noqa: S110
-            pass
+        except Exception as exc:
+            logger.debug(f"ISEC: failed to read ASD state: {exc}")
         return True
 
     def _check_vram_headroom(self) -> bool:
         """Check if VRAM headroom >= 400MB."""
         try:
             import pynvml  # noqa: PLC0415
+
             pynvml.nvmlInit()
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)

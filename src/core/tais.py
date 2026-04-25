@@ -69,6 +69,7 @@ class TAISDaemon:
                 TAIS_SENSOR_FAIL_EVENTS,
                 TAIS_THROTTLE_EVENTS,
             )
+
             self._metric_temp = TAIS_CURRENT_TEMP
             self._metric_throttle = TAIS_THROTTLE_EVENTS
             self._metric_emergency = TAIS_EMERGENCY_HALTS
@@ -83,6 +84,7 @@ class TAISDaemon:
         # Initialise pynvml once
         try:
             import pynvml  # noqa: PLC0415
+
             pynvml.nvmlInit()
             self._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             self._nvml_available = True
@@ -105,6 +107,7 @@ class TAISDaemon:
         if self._nvml_available:
             try:
                 import pynvml  # noqa: PLC0415
+
                 pynvml.nvmlShutdown()
             except Exception as exc:
                 logger.debug(f"TAIS: nvmlShutdown failed: {exc}")
@@ -164,9 +167,12 @@ class TAISDaemon:
             return None
         try:
             import pynvml  # noqa: PLC0415
-            return float(pynvml.nvmlDeviceGetTemperature(
-                self._nvml_handle, pynvml.NVML_TEMPERATURE_GPU
-            ))
+
+            return float(
+                pynvml.nvmlDeviceGetTemperature(
+                    self._nvml_handle, pynvml.NVML_TEMPERATURE_GPU
+                )
+            )
         except Exception as exc:
             logger.debug(f"TAIS: pynvml read failed: {exc}")
             return None
@@ -204,6 +210,7 @@ class TAISDaemon:
         if self._ollama_client:
             try:
                 import time  # noqa: PLC0415
+
                 t0 = time.monotonic()
                 model_q5 = (
                     self._config.model.primary
@@ -247,6 +254,7 @@ class TAISDaemon:
             try:
                 from src.ipc.channels import TAIS_STATUS  # noqa: PLC0415
                 from src.ipc.publisher import publish  # noqa: PLC0415
+
                 await publish(
                     TAIS_STATUS,
                     {"status": self._status.value, "temp": self._temp},
@@ -260,29 +268,29 @@ class TAISDaemon:
         if self._metrics_initialized:
             try:
                 self._metric_temp.set(temp)
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:
+                logger.debug(f"TAIS: failed to update temperature metric: {exc}")
 
     def _update_metrics_throttle(self) -> None:
         self._init_metrics()
         if self._metrics_initialized:
             try:
                 self._metric_throttle.inc()
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:
+                logger.debug(f"TAIS: failed to update throttle metric: {exc}")
 
     def _update_metrics_emergency(self) -> None:
         self._init_metrics()
         if self._metrics_initialized:
             try:
                 self._metric_emergency.inc()
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:
+                logger.debug(f"TAIS: failed to update emergency metric: {exc}")
 
     def _update_metrics_sensor_fail(self) -> None:
         self._init_metrics()
         if self._metrics_initialized:
             try:
                 self._metric_sensor_fail.inc()
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:
+                logger.debug(f"TAIS: failed to update sensor-fail metric: {exc}")

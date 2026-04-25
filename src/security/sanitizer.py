@@ -73,6 +73,7 @@ class ZeroTrustSanitizer:
     def _record_event(self, action: str, key: str, detail: str) -> None:
         if self._audit:
             import asyncio  # noqa: PLC0415
+
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -83,5 +84,5 @@ class ZeroTrustSanitizer:
                             session_id="",
                         )
                     )
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:
+                logger.debug(f"ZeroTrust: failed to record audit event: {exc}")
