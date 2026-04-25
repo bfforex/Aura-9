@@ -37,14 +37,19 @@ class TAISDaemon:
     Monitors GPU temperature and enforces compute throttling/halting.
     """
 
-    def __init__(self, ollama_client=None, redis_client=None) -> None:
+    def __init__(self, ollama_client=None, redis_client=None, config=None) -> None:
         self._ollama_client = ollama_client
         self._redis_client = redis_client
+        self._config = config
         self._status: TAISStatus = TAISStatus.NORMAL
         self._temp: float | None = None
         self._running = False
         self._task: asyncio.Task | None = None
         self._is_inferring = False
+
+        # pynvml state — initialised once in start()
+        self._nvml_available = False
+        self._nvml_handle = None
 
         # Prometheus metrics (lazy import to avoid circular deps)
         self._metrics_initialized = False
@@ -75,6 +80,16 @@ class TAISDaemon:
     async def start(self) -> None:
         """Start the TAIS polling loop."""
         self._running = True
+        # Initialise pynvml once
+        try:
+            import pynvml  # noqa: PLC0415
+            pynvml.nvmlInit()
+            self._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            self._nvml_available = True
+            logger.info("TAIS: pynvml initialised successfully")
+        except Exception as exc:
+            self._nvml_available = False
+            logger.warning(f"TAIS: pynvml init failed: {exc} — GPU monitoring disabled")
         self._task = asyncio.create_task(self._polling_loop())
         logger.info("TAIS daemon started")
 
@@ -87,6 +102,12 @@ class TAISDaemon:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        if self._nvml_available:
+            try:
+                import pynvml  # noqa: PLC0415
+                pynvml.nvmlShutdown()
+            except Exception as exc:
+                logger.debug(f"TAIS: nvmlShutdown failed: {exc}")
         logger.info("TAIS daemon stopped")
 
     def get_status(self) -> TAISStatus:
@@ -139,12 +160,13 @@ class TAISDaemon:
 
     def _read_gpu_temp(self) -> float | None:
         """Read GPU temperature via pynvml. Returns None on failure."""
+        if not self._nvml_available or self._nvml_handle is None:
+            return None
         try:
             import pynvml  # noqa: PLC0415
-            pynvml.nvmlInit()
-            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-            temp = float(pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU))
-            return temp
+            return float(pynvml.nvmlDeviceGetTemperature(
+                self._nvml_handle, pynvml.NVML_TEMPERATURE_GPU
+            ))
         except Exception as exc:
             logger.debug(f"TAIS: pynvml read failed: {exc}")
             return None
@@ -183,8 +205,16 @@ class TAISDaemon:
             try:
                 import time  # noqa: PLC0415
                 t0 = time.monotonic()
-                await self._ollama_client.unload_model("qwen3.5:9b-instruct-q5_k_m")
-                await self._ollama_client.load_model("qwen3.5:9b-instruct-q4_k_m")
+                model_q5 = (
+                    self._config.model.primary
+                    if self._config else "qwen3.5:9b-instruct-q5_k_m"
+                )
+                model_q4 = (
+                    self._config.model.primary_fallback
+                    if self._config else "qwen3.5:9b-instruct-q4_k_m"
+                )
+                await self._ollama_client.unload_model(model_q5)
+                await self._ollama_client.load_model(model_q4)
                 elapsed = time.monotonic() - t0
                 logger.info(f"TAIS: switched to Q4_K_M in {elapsed:.2f}s")
             except Exception as exc:
@@ -193,8 +223,16 @@ class TAISDaemon:
     async def _switch_to_q5(self) -> None:
         if self._ollama_client:
             try:
-                await self._ollama_client.unload_model("qwen3.5:9b-instruct-q4_k_m")
-                await self._ollama_client.load_model("qwen3.5:9b-instruct-q5_k_m")
+                model_q5 = (
+                    self._config.model.primary
+                    if self._config else "qwen3.5:9b-instruct-q5_k_m"
+                )
+                model_q4 = (
+                    self._config.model.primary_fallback
+                    if self._config else "qwen3.5:9b-instruct-q4_k_m"
+                )
+                await self._ollama_client.unload_model(model_q4)
+                await self._ollama_client.load_model(model_q5)
                 logger.info("TAIS: switched back to Q5_K_M")
             except Exception as exc:
                 logger.error(f"TAIS: model switch to Q5 failed: {exc}")

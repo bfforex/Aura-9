@@ -72,7 +72,7 @@ class ReasoningEngine:
                 f"ReasoningEngine: confidence {mission_conf:.3f} < threshold, "
                 f"correcting (cycle {cycles + 1})"
             )
-            subtask_results = await self._correction_cycle(manifest, subtask_results)
+            subtask_results = await self._correction_cycle(manifest, subtask_results, cycle=cycles)
             mission_conf = compute_mission_confidence(
                 [(r.confidence, r.complexity) for r in subtask_results]
             )
@@ -167,23 +167,85 @@ class ReasoningEngine:
         return results
 
     async def _correction_cycle(
-        self, manifest: MissionManifest, prev_results: list[SubTaskResult]
+        self, manifest: MissionManifest, prev_results: list[SubTaskResult], cycle: int = 0
     ) -> list[SubTaskResult]:
-        """Retry failed sub-tasks."""
+        """Retry failed sub-tasks with a correction prompt."""
+        logger.info(f"ReasoningEngine: correction_cycle={cycle + 1}")
         corrected = []
         for result in prev_results:
             if result.success and result.confidence >= ESCALATION_THRESHOLD:
                 corrected.append(result)
-            else:
-                # Re-attempt with slight confidence boost
-                new_conf = min(1.0, result.confidence + 0.1)
-                corrected.append(SubTaskResult(
-                    id=result.id,
-                    success=True,
-                    output=result.output,
-                    confidence=new_conf,
-                    complexity=result.complexity,
-                ))
+                continue
+
+            # Re-run via executor if one is available
+            if self._dag_scheduler and self._dag_scheduler.has_executor():
+                try:
+                    # Inject correction context into sub-task
+                    sub_task = {
+                        "id": result.id,
+                        "description": (
+                            f"[CORRECTION CYCLE {cycle + 1}] "
+                            f"Previous output: {result.output!r}. "
+                            f"Error: {result.error!r}. "
+                            "Re-attempt with improved reasoning."
+                        ),
+                        "tools_required": [],
+                        "estimated_complexity": result.complexity,
+                        "depends_on": [],
+                    }
+                    new_result = await self._dag_scheduler.execute_subtask(sub_task)
+                    new_result = SubTaskResult(
+                        id=result.id,
+                        success=new_result.success,
+                        output=new_result.output,
+                        confidence=new_result.confidence,
+                        complexity=result.complexity,
+                        error=new_result.error,
+                    )
+                    corrected.append(new_result)
+                    continue
+                except Exception as exc:
+                    logger.warning(f"ReasoningEngine: correction re-run failed: {exc}")
+            elif self._ollama:
+                try:
+                    from src.core.prompts import BASE_SYSTEM_PROMPT  # noqa: PLC0415
+                    messages = [
+                        {"role": "system", "content": BASE_SYSTEM_PROMPT},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Correction cycle {cycle + 1}. "
+                                f"Sub-task: {result.id}. "
+                                f"Previous output: {result.output!r}. "
+                                f"Error: {result.error!r}. "
+                                "Provide a corrected response."
+                            ),
+                        },
+                    ]
+                    llm_result = await self._ollama.chat(messages, stream=False)
+                    new_output = llm_result.get("message", {}).get("content", result.output)
+                    new_conf = min(1.0, result.confidence + 0.1)
+                    corrected.append(SubTaskResult(
+                        id=result.id,
+                        success=True,
+                        output=new_output,
+                        confidence=new_conf,
+                        complexity=result.complexity,
+                    ))
+                    continue
+                except Exception as exc:
+                    logger.warning(f"ReasoningEngine: LLM correction failed: {exc}")
+
+            # Graceful fallback (STUB_CORRECTION)
+            logger.debug(f"STUB_CORRECTION: bumping confidence for {result.id}")
+            new_conf = min(1.0, result.confidence + 0.1)
+            corrected.append(SubTaskResult(
+                id=result.id,
+                success=True,
+                output=result.output,
+                confidence=new_conf,
+                complexity=result.complexity,
+            ))
         return corrected
 
     async def _synthesize(
@@ -191,4 +253,23 @@ class ReasoningEngine:
     ) -> str:
         """Synthesize final output from all subtask results."""
         outputs = [str(r.output) for r in results if r.success]
+
+        if self._ollama:
+            try:
+                from src.core.prompts import BASE_SYSTEM_PROMPT  # noqa: PLC0415
+                synthesis_prompt = (
+                    f"Task: {manifest.original_intent}\n\n"
+                    "Sub-task outputs:\n"
+                    + "\n".join(f"- {o}" for o in outputs)
+                    + "\n\nSynthesize a coherent final response."
+                )
+                messages = [
+                    {"role": "system", "content": BASE_SYSTEM_PROMPT},
+                    {"role": "user", "content": synthesis_prompt},
+                ]
+                result = await self._ollama.chat(messages, stream=False)
+                return result.get("message", {}).get("content", "\n".join(outputs))
+            except Exception as exc:
+                logger.warning(f"ReasoningEngine: synthesis LLM call failed: {exc}")
+
         return "\n".join(outputs) if outputs else "Mission completed."

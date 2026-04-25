@@ -27,9 +27,12 @@ def start() -> None:
 
 
 async def _start_agent(config) -> None:
-    import redis.asyncio as aioredis  # noqa: PLC0415
+    import types  # noqa: PLC0415
 
+    from src.agent.bootstrap import run_agent  # noqa: PLC0415
     from src.observability.health import HealthChecker  # noqa: PLC0415
+
+    import redis.asyncio as aioredis  # noqa: PLC0415
 
     r = aioredis.Redis(
         host=config.redis.host,
@@ -39,15 +42,13 @@ async def _start_agent(config) -> None:
     )
     health = HealthChecker(redis_client=r)
     status = await health.check_all()
+    await r.aclose()
     click.echo(f"Health: {status.get('overall', 'UNKNOWN')}")
-    click.echo("Agent is running. Press Ctrl+C to stop.")
-    try:
-        while True:
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        click.echo("\nShutting down...")
-    finally:
-        await r.aclose()
+    click.echo("Starting agent…")
+
+    # Build an args-like namespace with defaults for the CLI start path
+    args = types.SimpleNamespace(resume=False, task=None, benchmark=False)
+    await run_agent(config, args)
 
 
 @cli.command()
@@ -98,8 +99,29 @@ def task() -> None:
 @click.argument("task_text")
 def submit(task_text: str) -> None:
     """Submit a new task to the agent."""
-    click.echo(f"Submitting task: {task_text}")
-    click.echo("Task queued. Use 'aura9 status' to monitor progress.")
+    asyncio.run(_submit_task(task_text))
+
+
+async def _submit_task(task_text: str) -> None:
+    import redis.asyncio as aioredis  # noqa: PLC0415
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    config = load_config()
+    r = aioredis.Redis(
+        host=config.redis.host,
+        port=config.redis.port,
+        password=config.redis.password or None,
+        db=config.redis.db,
+    )
+    try:
+        payload = json.dumps({"task": task_text, "submitted_at": datetime.now(UTC).isoformat()})
+        queue_len = await r.rpush("aura9:task_queue", payload)
+        click.echo(f"Task queued at position {queue_len}.")
+        click.echo("Use 'aura9 status' to monitor progress.")
+    except Exception as exc:
+        click.echo(f"Error queuing task: {exc}", err=True)
+    finally:
+        await r.aclose()
 
 
 @task.command("list")

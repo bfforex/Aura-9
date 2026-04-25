@@ -202,6 +202,10 @@ class L1RedisMemory:
         key = "falkordb:retry_queue"
         return int(await self._r.llen(key))
 
+    async def set_expiry(self, key: str, seconds: int) -> None:
+        """Set TTL on a Redis key."""
+        await self._r.expire(key, seconds)
+
     # -------------------------------------------------------------------------
     # Continuation
     # -------------------------------------------------------------------------

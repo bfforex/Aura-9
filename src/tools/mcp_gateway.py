@@ -115,9 +115,64 @@ class MCPGateway:
                 session_id=session_id,
             )
 
-        # Execute the call (placeholder — real implementation would use MCP protocol)
+        # Execute the call via JSON-RPC 2.0 when a URL is available
+        url = server_cfg.get("url")
+        api_key = server_cfg.get("api_key", "")
+
+        if url:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            try:
+                import httpx  # noqa: PLC0415
+
+                timeout = server_cfg.get("timeout_seconds", 30)
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+
+                payload = {
+                    "jsonrpc": "2.0",
+                    "method": tool_name,
+                    "params": arguments,
+                    "id": 1,
+                }
+
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(url, json=payload, headers=headers)
+                    response.raise_for_status()
+                    data = response.json()
+
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                logger.info(f"MCP: {server_id}.{tool_name} completed in {elapsed_ms:.0f}ms")
+
+                if "error" in data:
+                    err = data["error"]
+                    msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                    return ToolResult(
+                        success=False,
+                        output=None,
+                        error=msg,
+                        execution_time_ms=elapsed_ms,
+                    )
+
+                return ToolResult(
+                    success=True,
+                    output=data.get("result"),
+                    execution_time_ms=elapsed_ms,
+                )
+
+            except Exception as exc:
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                logger.error(f"MCP: {server_id}.{tool_name} failed: {exc}")
+                return ToolResult(
+                    success=False,
+                    output=None,
+                    error=str(exc),
+                    execution_time_ms=elapsed_ms,
+                )
+
+        # No URL configured — return stub OK (server not yet registered)
         elapsed_ms = (time.monotonic() - t0) * 1000
-        logger.info(f"MCP: calling {server_id}.{tool_name}")
+        logger.info(f"MCP: calling {server_id}.{tool_name} (no URL — stub response)")
         return ToolResult(
             success=True,
             output={"server_id": server_id, "tool_name": tool_name, "result": "OK"},

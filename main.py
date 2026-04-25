@@ -26,18 +26,9 @@ def main() -> None:
 
 
 async def _run(args, config) -> None:
-    from loguru import logger  # noqa: PLC0415
+    from src.agent.bootstrap import run_agent  # noqa: PLC0415
 
-    if args.resume:
-        logger.info("Resuming from checkpoint...")
-
-    if args.task:
-        logger.info(f"Submitting task: {args.task}")
-
-    if args.benchmark:
-        logger.info("Benchmark mode active")
-
-    logger.info("Aura-9 agent ready")
+    await run_agent(config, args)
 
 
 if __name__ == "__main__":

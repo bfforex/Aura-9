@@ -57,19 +57,33 @@ class WatchdogDaemon:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
 
     async def _monitor_loop(self) -> None:
-        """Subscribe to inference output channel."""
-        if not self._redis:
-            await asyncio.sleep(1)
-            return
-        try:
-            from src.ipc.channels import WATCHDOG_MONITOR  # noqa: PLC0415
-            from src.ipc.subscriber import subscribe  # noqa: PLC0415
-            async for payload in subscribe(WATCHDOG_MONITOR, self._redis):
-                if not self._running:
-                    break
-                await self._handle_monitor_event(payload)
-        except Exception as exc:
-            logger.warning(f"Watchdog monitor loop error: {exc}")
+        """Subscribe to inference output channel, with retry backoff when Redis unavailable."""
+        backoff = 1.0
+        last_warn_time = 0.0
+
+        while self._running:
+            if not self._redis:
+                import time  # noqa: PLC0415
+                now = time.monotonic()
+                if now - last_warn_time >= 60:
+                    logger.warning("Watchdog: Redis unavailable — monitor loop degraded")
+                    last_warn_time = now
+                await asyncio.sleep(min(backoff, 60.0))
+                backoff = min(backoff * 2, 60.0)
+                continue
+
+            backoff = 1.0  # reset on success
+            try:
+                from src.ipc.channels import WATCHDOG_MONITOR  # noqa: PLC0415
+                from src.ipc.subscriber import subscribe  # noqa: PLC0415
+                async for payload in subscribe(WATCHDOG_MONITOR, self._redis):
+                    if not self._running:
+                        return
+                    await self._handle_monitor_event(payload)
+            except Exception as exc:
+                logger.warning(f"Watchdog monitor loop error: {exc}")
+                await asyncio.sleep(min(backoff, 60.0))
+                backoff = min(backoff * 2, 60.0)
 
     async def _handle_monitor_event(self, payload: dict) -> None:
         output = payload.get("output", "")
